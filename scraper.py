@@ -1,69 +1,85 @@
-import requests
-from bs4 import BeautifulSoup
-import hashlib
+from playwright.sync_api import sync_playwright
 from datetime import datetime
+import hashlib
 
 from config import TRUTH_SOCIAL_USERNAME
 
 
 def get_trump_posts():
 
-    url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        print("Could not access Truth Social")
-        return []
-
-
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
-    )
-
-
     posts = []
 
-
-    text_blocks = soup.find_all(
-        "div"
-    )
+    url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
 
 
-    for block in text_blocks:
+    with sync_playwright() as p:
 
-        text = block.get_text(
-            " ",
-            strip=True
+        browser = p.chromium.launch(
+            headless=True
         )
 
-
-        if len(text) > 50:
-
-            post_id = hashlib.sha256(
-                text.encode()
-            ).hexdigest()
+        page = browser.new_page()
 
 
-            posts.append({
+        try:
 
-                "id": post_id,
+            page.goto(
+                url,
+                timeout=60000
+            )
 
-                "date":
-                datetime.now().isoformat(),
 
-                "text":
-                text,
+            page.wait_for_timeout(
+                5000
+            )
 
-                "url":
-                url
 
-            })
+            articles = page.locator(
+                "article"
+            )
+
+
+            count = articles.count()
+
+
+            for i in range(min(count, 10)):
+
+                text = articles.nth(i).inner_text()
+
+
+                if len(text) > 30:
+
+
+                    post_id = hashlib.sha256(
+                        text.encode()
+                    ).hexdigest()
+
+
+                    posts.append({
+
+                        "id": post_id,
+
+                        "date":
+                        datetime.now().isoformat(),
+
+                        "text":
+                        text,
+
+                        "url":
+                        url
+
+                    })
+
+
+        except Exception as error:
+
+            print(
+                "Scraper error:",
+                error
+            )
+
+
+        browser.close()
 
 
     return posts
