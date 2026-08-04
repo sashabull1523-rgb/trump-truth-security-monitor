@@ -1,6 +1,6 @@
 from scraper import get_trump_posts
 from analyzer import analyze_post
-from database import initialize_database, save_post
+from database import create_database, save_post
 from email_sender import send_email
 
 
@@ -8,7 +8,7 @@ def main():
 
     print("Starting Truth Security Monitor")
 
-    initialize_database()
+    create_database()
 
     posts = get_trump_posts()
 
@@ -33,11 +33,11 @@ def main():
                 **analysis
             }
 
-            security_posts.append(
+            save_post(
                 combined_post
             )
 
-            save_post(
+            security_posts.append(
                 combined_post
             )
 
@@ -51,39 +51,34 @@ def main():
         return
 
 
-    email_content = ""
+    email_body = ""
+
 
     for post in security_posts:
 
-        email_content += f"""
+        email_body += f"""
 --------------------------------
 
 Trump Truth Social Post:
 
 {post['text']}
 
-
 Topic:
 {post['topic']}
-
 
 Countries:
 {', '.join(post['countries'])}
 
-
 Organizations:
 {', '.join(post['organizations'])}
-
 
 Importance:
 {post['importance']}
 
-
 Summary:
 {post['summary']}
 
-
-Why it matters:
+Security Reason:
 {post['security_reason']}
 
 """
@@ -91,12 +86,12 @@ Why it matters:
 
     send_email(
         "Daily Trump International Security Monitor",
-        email_content
+        email_body
     )
 
 
     print(
-        "Email sent successfully"
+        "Monitor complete"
     )
 
 
