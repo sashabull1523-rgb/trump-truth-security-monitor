@@ -1,0 +1,7 @@
+openai
+requests
+beautifulsoup4
+playwright
+python-dotenv
+jinja2
+lxml
