@@ -1,16 +1,10 @@
 from playwright.sync_api import sync_playwright
-from datetime import datetime
-import hashlib
-
 from config import TRUTH_SOCIAL_USERNAME
 
 
-def get_trump_posts():
-
-    posts = []
+def test_scraper():
 
     url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
-
 
     with sync_playwright() as p:
 
@@ -20,66 +14,29 @@ def get_trump_posts():
 
         page = browser.new_page()
 
-
         try:
-
             page.goto(
                 url,
                 timeout=60000
             )
 
+            page.wait_for_timeout(10000)
 
-            page.wait_for_timeout(
-                5000
-            )
+            print("PAGE TITLE:")
+            print(page.title())
 
+            print("\nNUMBER OF ARTICLES:")
+            print(page.locator("article").count())
 
-            articles = page.locator(
-                "article"
-            )
-
-
-            count = articles.count()
-
-
-            for i in range(min(count, 10)):
-
-                text = articles.nth(i).inner_text()
-
-
-                if len(text) > 30:
-
-
-                    post_id = hashlib.sha256(
-                        text.encode()
-                    ).hexdigest()
-
-
-                    posts.append({
-
-                        "id": post_id,
-
-                        "date":
-                        datetime.now().isoformat(),
-
-                        "text":
-                        text,
-
-                        "url":
-                        url
-
-                    })
-
+            print("\nPAGE TEXT SAMPLE:")
+            print(page.inner_text("body")[:2000])
 
         except Exception as error:
-
-            print(
-                "Scraper error:",
-                error
-            )
-
+            print("ERROR:")
+            print(error)
 
         browser.close()
 
 
-    return posts
+if __name__ == "__main__":
+    test_scraper()
