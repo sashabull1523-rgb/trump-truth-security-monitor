@@ -1,0 +1,40 @@
+name: Daily Truth Security Monitor
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
+  run-monitor:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Install Playwright
+        run: |
+          playwright install chromium
+
+      - name: Run Truth Security Monitor
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+
+        run: |
+          python main.py
+          
