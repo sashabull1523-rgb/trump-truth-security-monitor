@@ -1,42 +1,92 @@
-from playwright.sync_api import sync_playwright
+mport requests
+from datetime import datetime
+import hashlib
+
 from config import TRUTH_SOCIAL_USERNAME
 
 
-def test_scraper():
+def get_trump_posts():
 
-    url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
+    posts = []
 
-    with sync_playwright() as p:
+    # Truth Social account
+    username = TRUTH_SOCIAL_USERNAME
 
-        browser = p.chromium.launch(
-            headless=True
+    # Public feed endpoint attempt
+    url = f"https://truthsocial.com/@{username}.rss"
+
+    try:
+
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            },
+            timeout=30
         )
 
-        page = browser.new_page()
+        response.raise_for_status()
 
-        try:
-            page.goto(
-                url,
-                timeout=60000
-            )
+        text = response.text
 
-            page.wait_for_timeout(10000)
-
-            print("PAGE TITLE:")
-            print(page.title())
-
-            print("\nNUMBER OF ARTICLES:")
-            print(page.locator("article").count())
-
-            print("\nPAGE TEXT SAMPLE:")
-            print(page.inner_text("body")[:2000])
-
-        except Exception as error:
-            print("ERROR:")
-            print(error)
-
-        browser.close()
+        if len(text) < 100:
+            print("No RSS data returned.")
+            return posts
 
 
-if __name__ == "__main__":
-    test_scraper()
+        # Basic RSS extraction
+        items = text.split("<item>")[1:]
+
+
+        for item in items[:10]:
+
+            if "<description>" in item:
+
+                post_text = (
+                    item
+                    .split("<description>")[1]
+                    .split("</description>")[0]
+                )
+
+                post_text = (
+                    post_text
+                    .replace("<![CDATA[", "")
+                    .replace("]]>", "")
+                )
+
+
+                post_id = hashlib.sha256(
+                    post_text.encode()
+                ).hexdigest()
+
+
+                posts.append({
+
+                    "id": post_id,
+
+                    "date":
+                    datetime.now().isoformat(),
+
+                    "text":
+                    post_text,
+
+                    "url":
+                    f"https://truthsocial.com/@{username}"
+
+                })
+
+
+        print(
+            f"Found {len(posts)} Trump posts"
+        )
+
+
+    except Exception as error:
+
+        print(
+            "Truth Social scraper error:",
+            error
+        )
+
+
+    return posts
