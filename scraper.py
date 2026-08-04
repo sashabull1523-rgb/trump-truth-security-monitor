@@ -1,92 +1,36 @@
-import requests
 from datetime import datetime
 import hashlib
-
-from config import TRUTH_SOCIAL_USERNAME
 
 
 def get_trump_posts():
 
     posts = []
 
-    # Truth Social account
-    username = TRUTH_SOCIAL_USERNAME
+    # TEMPORARY TEST POST
+    # This tests the rest of your system
+    # before fixing the Truth Social connection
 
-    # Public feed endpoint attempt
-    url = f"https://truthsocial.com/@{username}.rss"
+    text = """
+    President Trump announces a new NATO defense policy
+    involving European allies and military cooperation.
+    """
 
-    try:
-
-        response = requests.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0"
-            },
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        text = response.text
-
-        if len(text) < 100:
-            print("No RSS data returned.")
-            return posts
+    post_id = hashlib.sha256(
+        text.encode()
+    ).hexdigest()
 
 
-        # Basic RSS extraction
-        items = text.split("<item>")[1:]
+    posts.append({
 
+        "id": post_id,
 
-        for item in items[:10]:
+        "date": datetime.now().isoformat(),
 
-            if "<description>" in item:
+        "text": text,
 
-                post_text = (
-                    item
-                    .split("<description>")[1]
-                    .split("</description>")[0]
-                )
+        "url": "test"
 
-                post_text = (
-                    post_text
-                    .replace("<![CDATA[", "")
-                    .replace("]]>", "")
-                )
-
-
-                post_id = hashlib.sha256(
-                    post_text.encode()
-                ).hexdigest()
-
-
-                posts.append({
-
-                    "id": post_id,
-
-                    "date":
-                    datetime.now().isoformat(),
-
-                    "text":
-                    post_text,
-
-                    "url":
-                    f"https://truthsocial.com/@{username}"
-
-                })
-
-
-        print(
-            f"Found {len(posts)} Trump posts"
-        )
-
-
-    except Exception as error:
-
-        print(
-            "Truth Social scraper error:",
-            error
-        )
+    })
 
 
     return posts
