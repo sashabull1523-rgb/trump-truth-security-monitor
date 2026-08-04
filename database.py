@@ -1,42 +1,28 @@
-mport sqlite3
+import sqlite3
 import os
 
 DATABASE_PATH = "data/posts.db"
 
 
 def create_database():
-
     os.makedirs("data", exist_ok=True)
 
     connection = sqlite3.connect(DATABASE_PATH)
-
     cursor = connection.cursor()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS posts (
-
         id TEXT PRIMARY KEY,
-
         date TEXT,
-
         text TEXT,
-
         url TEXT,
-
         topic TEXT,
-
         countries TEXT,
-
         organizations TEXT,
-
         summary TEXT,
-
         importance TEXT,
-
         security_reason TEXT,
-
         emailed INTEGER DEFAULT 0
-
     )
     """)
 
@@ -45,15 +31,13 @@ def create_database():
 
 
 def save_post(post):
-
     connection = sqlite3.connect(DATABASE_PATH)
-
     cursor = connection.cursor()
 
     cursor.execute("""
-    INSERT OR IGNORE INTO posts VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    INSERT OR IGNORE INTO posts
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-
         post["id"],
         post["date"],
         post["text"],
@@ -65,7 +49,6 @@ def save_post(post):
         post["importance"],
         post["security_reason"],
         0
-
     ))
 
     connection.commit()
@@ -73,9 +56,7 @@ def save_post(post):
 
 
 def get_unemailed_posts():
-
     connection = sqlite3.connect(DATABASE_PATH)
-
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -92,9 +73,7 @@ def get_unemailed_posts():
 
 
 def mark_as_emailed(post_id):
-
     connection = sqlite3.connect(DATABASE_PATH)
-
     cursor = connection.cursor()
 
     cursor.execute("""
