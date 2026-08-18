@@ -1,71 +1,95 @@
-from playwright.sync_api import sync_playwright
-from config import TRUTH_SOCIAL_USERNAME
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
+import hashlib
+
+
+TRUMP_ACCOUNT_ID = "107780257626128497"
+
+TRUTH_API_URL = (
+    f"https://truthsocial.com/api/v1/accounts/"
+    f"{TRUMP_ACCOUNT_ID}/statuses"
+)
 
 
 def get_trump_posts():
 
-    url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
-
-    print("Starting Truth Social scraper...")
-    print(f"Opening: {url}")
+    print("Starting Truth Social API scraper...")
+    print(f"Requesting: {TRUTH_API_URL}")
 
     posts = []
 
-    with sync_playwright() as p:
+    try:
 
-        browser = p.chromium.launch(
-            headless=True
+        response = requests.get(
+            TRUTH_API_URL,
+            params={
+                "limit": 20
+            },
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            },
+            timeout=30
         )
 
-        page = browser.new_page()
+        print(f"HTTP STATUS: {response.status_code}")
 
-        try:
+        response.raise_for_status()
 
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=60000
+        data = response.json()
+
+        print(f"POSTS RECEIVED: {len(data)}")
+
+        for status in data:
+
+            html = status.get("content", "")
+
+            soup = BeautifulSoup(
+                html,
+                "html.parser"
             )
 
-            page.wait_for_timeout(10000)
-
-            print("PAGE TITLE:")
-            print(page.title())
-
-            print("\nPAGE URL:")
-            print(page.url)
-
-            print("\nPAGE TEXT:")
-            print(page.locator("body").inner_text()[:3000])
-
-            articles = page.locator("article")
-
-            count = articles.count()
-
-            print(f"\nNUMBER OF ARTICLES: {count}")
-
-            for i in range(min(count, 10)):
-
-                text = articles.nth(i).inner_text().strip()
-
-                if text:
-
-                    print("\n--- POST ---")
-                    print(text)
-
-                    posts.append({
-                        "text": text,
-                        "url": url
-                    })
-
-        except Exception as error:
-
-            print(
-                f"Truth Social scraper error: {error}"
+            text = soup.get_text(
+                " ",
+                strip=True
             )
 
-        finally:
+            if not text:
+                continue
 
-            browser.close()
+            post_id = status.get("id")
+
+            created_at = status.get(
+                "created_at"
+            )
+
+            post_url = status.get(
+                "url"
+            )
+
+            posts.append({
+
+                "id": post_id,
+
+                "date": created_at,
+
+                "text": text,
+
+                "url": post_url
+
+            })
+
+            print("\n-----------------------------")
+            print("TRUMP POST")
+            print("-----------------------------")
+            print(text)
+            print(f"DATE: {created_at}")
+            print(f"URL: {post_url}")
+
+    except Exception as error:
+
+        print(
+            f"Truth Social API error: {error}"
+        )
 
     return posts
