@@ -1,114 +1,203 @@
-from playwright.sync_api import sync_playwright
-import time
+import os
+import requests
+from datetime import datetime, timezone
 
-from config import TRUTH_USERNAME, TRUTH_PASSWORD
+
+# ============================================================
+# TRUTH SOCIAL DATA SOURCE
+# ============================================================
+
+TRUTH_API_KEY = os.getenv("TRUTH_API_KEY")
+
+# Put the authorized API endpoint supplied by your data provider here.
+TRUTH_API_URL = os.getenv("TRUTH_API_URL")
+
+TRUMP_USERNAME = "realDonaldTrump"
 
 
 def get_trump_posts():
+    """
+    Retrieve Trump's latest Truth Social posts from an
+    authorized API/data provider.
+
+    This replaces the Playwright browser scraper.
+    """
+
+    if not TRUTH_API_KEY:
+        print("ERROR: TRUTH_API_KEY is not configured.")
+        return []
+
+    if not TRUTH_API_URL:
+        print("ERROR: TRUTH_API_URL is not configured.")
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {TRUTH_API_KEY}",
+        "Accept": "application/json",
+    }
+
+    params = {
+        "username": TRUMP_USERNAME,
+    }
+
+    try:
+        print("Requesting Trump's Truth Social posts...")
+
+        response = requests.get(
+            TRUTH_API_URL,
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
+
+        print(f"API status code: {response.status_code}")
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        print("Successfully received data from authorized source.")
+
+        return normalize_posts(data)
+
+    except requests.exceptions.Timeout:
+        print("ERROR: Truth Social API request timed out.")
+        return []
+
+    except requests.exceptions.HTTPError as e:
+        print(f"ERROR: Truth Social API returned HTTP error: {e}")
+        print(response.text[:1000])
+        return []
+
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: Could not connect to Truth Social API: {e}")
+        return []
+
+    except ValueError:
+        print("ERROR: API returned invalid JSON.")
+        print(response.text[:1000])
+        return []
+
+
+# ============================================================
+# NORMALIZE API DATA
+# ============================================================
+
+def normalize_posts(data):
+    """
+    Convert the provider's API response into a simple list
+    of posts that the rest of the monitoring system can use.
+
+    The exact field names may need to be adjusted once we know
+    the provider's response format.
+    """
+
+    if isinstance(data, list):
+        raw_posts = data
+
+    elif isinstance(data, dict):
+        raw_posts = (
+            data.get("posts")
+            or data.get("data")
+            or data.get("results")
+            or []
+        )
+
+    else:
+        print("ERROR: Unexpected API response format.")
+        return []
 
     posts = []
 
-    with sync_playwright() as p:
+    for post in raw_posts:
 
-        browser = p.chromium.launch(
-            headless=True
-        )
+        if not isinstance(post, dict):
+            continue
 
-        page = browser.new_page()
+        normalized = {
+            "id": (
+                post.get("id")
+                or post.get("post_id")
+                or post.get("uri")
+            ),
 
-        try:
+            "text": (
+                post.get("text")
+                or post.get("content")
+                or post.get("body")
+                or ""
+            ),
 
-            print("Opening Truth Social...")
+            "created_at": (
+                post.get("created_at")
+                or post.get("createdAt")
+                or post.get("timestamp")
+            ),
 
-            page.goto(
-                "https://truthsocial.com",
-                wait_until="domcontentloaded",
-                timeout=60000
-            )
+            "url": (
+                post.get("url")
+                or post.get("permalink")
+                or post.get("link")
+            ),
 
-            print("Truth Social opened.")
+            "username": (
+                post.get("username")
+                or post.get("account")
+                or TRUMP_USERNAME
+            ),
+        }
 
-            # Look for the login button
-            page.get_by_text("Log in", exact=True).click()
+        # Don't add completely empty records.
+        if normalized["text"]:
+            posts.append(normalized)
 
-            time.sleep(3)
-
-            print("Login page opened.")
-
-            # Enter username/email
-            page.locator(
-                'input[type="text"], input[type="email"]'
-            ).first.fill(TRUTH_USERNAME)
-
-            # Enter password
-            page.locator(
-                'input[type="password"]'
-            ).fill(TRUTH_PASSWORD)
-
-            # Submit login
-            page.get_by_role(
-                "button",
-                name="Log in"
-            ).click()
-
-            print("Login submitted.")
-
-            time.sleep(8)
-
-            # Go directly to Trump's profile
-            page.goto(
-                "https://truthsocial.com/@realDonaldTrump",
-                wait_until="domcontentloaded",
-                timeout=60000
-            )
-
-            time.sleep(5)
-
-            print("Trump profile opened.")
-
-            # Find posts on the page
-            articles = page.locator("article")
-
-            count = articles.count()
-
-            print(f"Found {count} possible posts.")
-
-            for i in range(count):
-
-                article = articles.nth(i)
-
-                try:
-
-                    text = article.inner_text()
-
-                    if not text.strip():
-                        continue
-
-                    posts.append({
-                        "id": str(i),
-                        "date": "",
-                        "text": text,
-                        "url": page.url
-                    })
-
-                except Exception as error:
-
-                    print(
-                        f"Could not read post {i}: {error}"
-                    )
-
-        except Exception as error:
-
-            print(
-                f"Truth Social scraper error: {error}"
-            )
-
-        finally:
-
-            browser.close()
-
-    print(
-        f"TOTAL POSTS FOUND: {len(posts)}"
-    )
+    print(f"Normalized {len(posts)} posts.")
 
     return posts
+
+
+# ============================================================
+# DISPLAY POSTS
+# ============================================================
+
+def print_posts(posts):
+
+    if not posts:
+        print("NO POSTS FOUND")
+        return
+
+    print("=" * 60)
+    print(f"TOTAL POSTS FOUND: {len(posts)}")
+    print("=" * 60)
+
+    for i, post in enumerate(posts, start=1):
+
+        print()
+        print(f"POST #{i}")
+        print("-" * 60)
+
+        print(f"ID: {post.get('id')}")
+        print(f"Created: {post.get('created_at')}")
+        print(f"URL: {post.get('url')}")
+        print()
+        print(post.get("text"))
+
+
+# ============================================================
+# MAIN SCRAPER TEST
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 60)
+    print("TRUTH SOCIAL API MONITOR")
+    print("=" * 60)
+
+    posts = get_trump_posts()
+
+    print_posts(posts)
+
+    print()
+    print("=" * 60)
+    print("MONITOR COMPLETE")
+    print("=" * 60)
