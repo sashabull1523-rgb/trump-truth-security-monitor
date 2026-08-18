@@ -8,30 +8,36 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 
-# ============================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================
-
 load_dotenv()
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 TRUTH_API_KEY = os.environ.get("TRUTH_API_KEY")
 TRUTH_API_URL = os.environ.get("TRUTH_API_URL")
 
 EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-ALERT_EMAIL = os.environ.get("ALERT_EMAIL")
+EMAIL_TO = os.environ.get("EMAIL_TO")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TARGET_URL = "https://truthsocial.com/@realDonaldTrump"
 
-STATE_FILE = "last_post.json"
+STATE_FILE = "latest_post.json"
 
 
-# ============================================
-# LOAD LAST POST
-# ============================================
+# ============================================================
+# STATE MANAGEMENT
+# ============================================================
 
-def load_last_post():
+def load_previous_post_id():
+    """
+    Load the ID of the most recent post we saw during
+    the previous GitHub Actions run.
+    """
 
     if not os.path.exists(STATE_FILE):
         return None
@@ -43,77 +49,67 @@ def load_last_post():
         return data.get("post_id")
 
     except Exception as e:
-
-        print("WARNING: Could not read previous post state.")
+        print("WARNING: Could not read previous post.")
         print(str(e))
-
         return None
 
 
-# ============================================
-# SAVE LAST POST
-# ============================================
+def save_latest_post_id(post_id):
+    """
+    Save the newest post ID so the next run can determine
+    whether a new post appeared.
+    """
 
-def save_last_post(post_id):
+    data = {
+        "post_id": post_id
+    }
 
-    try:
+    with open(STATE_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
 
-        with open(STATE_FILE, "w", encoding="utf-8") as file:
-
-            json.dump(
-                {
-                    "post_id": str(post_id)
-                },
-                file,
-                indent=2
-            )
-
-        print("Saved latest post ID:", post_id)
-
-    except Exception as e:
-
-        print("WARNING: Could not save post state.")
-        print(str(e))
+    print("Saved latest post ID:", post_id)
 
 
-# ============================================
-# SEND EMAIL
-# ============================================
+# ============================================================
+# EMAIL
+# ============================================================
 
 def send_email(subject, body):
+    """
+    Send an email notification using Gmail SMTP.
+    """
 
     if not EMAIL_ADDRESS:
-        print("ERROR: EMAIL_ADDRESS secret is missing.")
+        print("ERROR: EMAIL_ADDRESS is not configured.")
         return False
 
     if not EMAIL_PASSWORD:
-        print("ERROR: EMAIL_PASSWORD secret is missing.")
+        print("ERROR: EMAIL_PASSWORD is not configured.")
         return False
 
-    if not ALERT_EMAIL:
-        print("ERROR: ALERT_EMAIL secret is missing.")
+    if not EMAIL_TO:
+        print("ERROR: EMAIL_TO is not configured.")
         return False
+
+    print("--------------------------------")
+    print("Sending email alert...")
+    print("From:", EMAIL_ADDRESS)
+    print("To:", EMAIL_TO)
+    print("--------------------------------")
+
+    message = MIMEMultipart()
+
+    message["From"] = EMAIL_ADDRESS
+    message["To"] = EMAIL_TO
+    message["Subject"] = subject
+
+    message.attach(
+        MIMEText(body, "plain", "utf-8")
+    )
 
     try:
 
-        message = MIMEMultipart()
-
-        message["From"] = EMAIL_ADDRESS
-        message["To"] = ALERT_EMAIL
-        message["Subject"] = subject
-
-        message.attach(
-            MIMEText(body, "plain", "utf-8")
-        )
-
-        print("Connecting to email server...")
-
-        # Gmail SMTP
-        with smtplib.SMTP(
-            "smtp.gmail.com",
-            587,
-            timeout=30
-        ) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
 
             server.starttls()
 
@@ -124,7 +120,7 @@ def send_email(subject, body):
 
             server.sendmail(
                 EMAIL_ADDRESS,
-                ALERT_EMAIL,
+                EMAIL_TO,
                 message.as_string()
             )
 
@@ -140,57 +136,38 @@ def send_email(subject, body):
         return False
 
 
-# ============================================
-# GET TRUTH SOCIAL POSTS
-# ============================================
+# ============================================================
+# TRUTH SOCIAL API
+# ============================================================
 
-def get_truth_posts():
+def get_truth_social_posts():
 
     if not TRUTH_API_KEY:
-
         print("ERROR: TRUTH_API_KEY secret is missing.")
-
         return None
 
     if not TRUTH_API_URL:
-
         print("ERROR: TRUTH_API_URL secret is missing.")
-
         return None
 
-    print("API credentials detected.")
-
-    print(
-        "Connecting to authorized Truth Social data source..."
-    )
-
     headers = {
-
-        "Authorization":
-            f"Bearer {TRUTH_API_KEY}",
-
-        "Accept":
-            "application/json",
-
-        "User-Agent":
-            "Truth-Social-Monitor/1.0"
+        "Authorization": f"Bearer {TRUTH_API_KEY}",
+        "Accept": "application/json",
+        "User-Agent": "Truth-Social-Monitor/1.0"
     }
 
     params = {
-
         "url": TARGET_URL
     }
+
+    print("Connecting to authorized Truth Social data source...")
 
     try:
 
         response = requests.get(
-
             TRUTH_API_URL,
-
             headers=headers,
-
             params=params,
-
             timeout=30
         )
 
@@ -203,8 +180,11 @@ def get_truth_posts():
             print("API REQUEST FAILED")
             print("Status code:", response.status_code)
 
-            print("API response:")
-            print(response.text[:5000])
+            try:
+                print("API response:")
+                print(response.text[:5000])
+            except Exception:
+                pass
 
             return None
 
@@ -214,331 +194,321 @@ def get_truth_posts():
 
         except ValueError:
 
-            print(
-                "ERROR: API response was not valid JSON."
-            )
-
+            print("ERROR: API response was not valid JSON.")
             return None
 
-        print("JSON response received successfully.")
+        if not data.get("success"):
+
+            print("ERROR: API reported an unsuccessful request.")
+            print(data)
+
+            return None
 
         return data
 
     except requests.exceptions.Timeout:
 
-        print("ERROR: API request timed out.")
-
+        print("ERROR: Truth Social API request timed out.")
         return None
 
     except requests.exceptions.ConnectionError:
 
-        print("ERROR: Could not connect to API.")
-
+        print("ERROR: Could not connect to Truth Social API.")
         return None
 
     except requests.exceptions.RequestException as e:
 
         print("ERROR: API request failed.")
+        print(str(e))
 
+        return None
+
+    except Exception as e:
+
+        print("UNEXPECTED API ERROR:")
         print(str(e))
 
         return None
 
 
-# ============================================
-# EXTRACT POSTS
-# ============================================
+# ============================================================
+# FIND NEWEST POST
+# ============================================================
 
-def extract_posts(data):
+def get_newest_post(data):
 
     try:
 
         posts = data["data"]["posts"]
 
-        if not isinstance(posts, list):
+        if not posts:
 
-            print("ERROR: Posts were not returned as a list.")
+            print("No posts were returned.")
+            return None
 
-            return []
+        newest_post = posts[0]
 
-        return posts
+        return newest_post
 
     except (KeyError, TypeError):
 
-        print(
-            "ERROR: Could not find posts in API response."
+        print("ERROR: Could not find posts in API response.")
+        return None
+
+
+# ============================================================
+# FORMAT EMAIL
+# ============================================================
+
+def create_email(post):
+
+    post_id = post.get("id", "Unknown")
+
+    post_url = post.get(
+        "url",
+        f"https://truthsocial.com/@realDonaldTrump/{post_id}"
+    )
+
+    created_at = post.get(
+        "createdAt",
+        "Unknown time"
+    )
+
+    content = post.get(
+        "content",
+        ""
+    )
+
+    # Remove HTML if necessary.
+    if "<" in content and ">" in content:
+
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(
+            content,
+            "html.parser"
         )
 
-        return []
+        content = soup.get_text(
+            separator=" ",
+            strip=True
+        )
+
+    subject = "🚨 New Trump Truth Social Post"
+
+    body = f"""
+A new post from Donald Trump was detected on Truth Social.
+
+--------------------------------------------------
+
+POST TIME:
+{created_at}
+
+--------------------------------------------------
+
+POST:
+
+{content}
+
+--------------------------------------------------
+
+TRUTH SOCIAL LINK:
+
+{post_url}
+
+--------------------------------------------------
+
+POST ID:
+
+{post_id}
+
+This alert was generated automatically by your
+Truth Social monitoring program.
+"""
+
+    return subject, body
 
 
-# ============================================
-# GET POST INFORMATION
-# ============================================
-
-def get_post_text(post):
-
-    return (
-        post.get("content")
-        or post.get("text")
-        or "(No text available)"
-    )
-
-
-def get_post_id(post):
-
-    return post.get("id")
-
-
-def get_post_url(post):
-
-    return (
-        post.get("url")
-        or post.get("uri")
-        or TARGET_URL
-    )
-
-
-def get_post_time(post):
-
-    return (
-        post.get("created_at")
-        or post.get("createdAt")
-        or "Unknown time"
-    )
-
-
-# ============================================
+# ============================================================
 # MAIN MONITOR
-# ============================================
+# ============================================================
 
 def main():
 
+    print()
     print("================================")
     print("TRUTH SOCIAL API MONITOR")
     print("================================")
 
-    # -----------------------------------------
+    # --------------------------------------------------------
     # Check email configuration
-    # -----------------------------------------
+    # --------------------------------------------------------
 
     if not EMAIL_ADDRESS:
-
-        print(
-            "WARNING: EMAIL_ADDRESS is not configured."
-        )
+        print("WARNING: EMAIL_ADDRESS is not configured.")
 
     if not EMAIL_PASSWORD:
+        print("WARNING: EMAIL_PASSWORD is not configured.")
 
-        print(
-            "WARNING: EMAIL_PASSWORD is not configured."
-        )
+    if not EMAIL_TO:
+        print("WARNING: EMAIL_TO is not configured.")
 
-    if not ALERT_EMAIL:
+    # --------------------------------------------------------
+    # Check API configuration
+    # --------------------------------------------------------
 
-        print(
-            "WARNING: ALERT_EMAIL is not configured."
-        )
+    if not TRUTH_API_KEY:
 
-    # -----------------------------------------
-    # Get Truth Social data
-    # -----------------------------------------
+        print("ERROR: TRUTH_API_KEY secret is missing.")
+        return
 
-    data = get_truth_posts()
+    if not TRUTH_API_URL:
+
+        print("ERROR: TRUTH_API_URL secret is missing.")
+        return
+
+    print("API credentials detected.")
+
+    # --------------------------------------------------------
+    # Get Truth Social posts
+    # --------------------------------------------------------
+
+    data = get_truth_social_posts()
 
     if data is None:
 
-        print("Could not retrieve Truth Social data.")
+        print()
+        print("================================")
+        print("MONITOR FAILED")
+        print("================================")
 
         return
 
-    # -----------------------------------------
-    # Extract posts
-    # -----------------------------------------
-
-    posts = extract_posts(data)
-
     print("--------------------------------")
-    print("Posts retrieved:", len(posts))
+    print("JSON response received successfully.")
     print("--------------------------------")
 
-    if not posts:
+    try:
 
-        print("No posts were returned.")
+        posts = data["data"]["posts"]
 
+        print("Posts retrieved:", len(posts))
+
+    except (KeyError, TypeError):
+
+        print("ERROR: Could not read posts.")
         return
 
-    # -----------------------------------------
+    # --------------------------------------------------------
     # Find newest post
-    # -----------------------------------------
+    # --------------------------------------------------------
 
-    newest_post = posts[0]
+    newest_post = get_newest_post(data)
 
-    newest_post_id = get_post_id(newest_post)
-
-    if not newest_post_id:
-
-        print(
-            "ERROR: Newest post does not have an ID."
-        )
-
+    if newest_post is None:
         return
 
-    newest_post_id = str(newest_post_id)
+    newest_id = newest_post.get("id")
 
-    newest_text = get_post_text(newest_post)
+    newest_time = newest_post.get(
+        "createdAt",
+        "Unknown time"
+    )
 
-    newest_url = get_post_url(newest_post)
-
-    newest_time = get_post_time(newest_post)
-
-    print("Newest post ID:", newest_post_id)
+    print("--------------------------------")
+    print("Newest post ID:", newest_id)
     print("Newest post time:", newest_time)
+    print("--------------------------------")
 
-    # -----------------------------------------
-    # Load previous state
-    # -----------------------------------------
+    # --------------------------------------------------------
+    # Load previous post
+    # --------------------------------------------------------
 
-    last_post_id = load_last_post()
+    previous_id = load_previous_post_id()
 
-    print("Previously recorded post:", last_post_id)
+    print("Previously recorded post:", previous_id)
 
-    # -----------------------------------------
+    # --------------------------------------------------------
     # FIRST RUN
-    # -----------------------------------------
+    # --------------------------------------------------------
 
-    if last_post_id is None:
+    if previous_id is None:
 
         print("--------------------------------")
         print("FIRST RUN")
         print("--------------------------------")
 
-        print(
-            "No previous post has been recorded."
-        )
+        print("No previous post has been recorded.")
+        print("Saving the current newest post.")
 
-        print(
-            "Saving the current newest post."
-        )
+        save_latest_post_id(newest_id)
 
-        save_last_post(newest_post_id)
-
-        print(
-            "No email sent on first run."
-        )
-
-        print(
-            "This prevents the monitor from "
-            "emailing you about an old post."
-        )
+        print("No email sent on first run.")
+        print("This prevents the monitor from emailing you")
+        print("about an old post.")
 
         print("================================")
 
         return
 
-    # -----------------------------------------
+    # --------------------------------------------------------
     # NO NEW POST
-    # -----------------------------------------
+    # --------------------------------------------------------
 
-    if newest_post_id == last_post_id:
+    if newest_id == previous_id:
 
         print("--------------------------------")
-        print("NO NEW POSTS")
+        print("NO NEW POST")
         print("--------------------------------")
 
-        print(
-            "The newest post is the same as "
-            "the previous check."
-        )
+        print("The newest post is the same as the previous run.")
+        print("No email will be sent.")
 
         print("================================")
 
         return
 
-    # -----------------------------------------
-    # NEW POST FOUND
-    # -----------------------------------------
+    # --------------------------------------------------------
+    # NEW POST DETECTED
+    # --------------------------------------------------------
 
     print("--------------------------------")
-    print("NEW POST DETECTED")
+    print("🚨 NEW POST DETECTED")
     print("--------------------------------")
 
-    print("Post ID:", newest_post_id)
-    print("Posted:", newest_time)
+    print("Previous post:", previous_id)
+    print("New post:", newest_id)
 
-    print()
-    print("POST:")
-    print(newest_text)
+    # Create email
+    subject, body = create_email(newest_post)
 
-    print()
-    print("URL:")
-    print(newest_url)
-
-    # -----------------------------------------
-    # Email
-    # -----------------------------------------
-
-    email_subject = (
-        "🚨 New Donald Trump Truth Social Post"
-    )
-
-    email_body = f"""
-NEW DONALD TRUMP TRUTH SOCIAL POST
-
-Posted:
-{newest_time}
-
---------------------------------
-
-POST:
-
-{newest_text}
-
---------------------------------
-
-VIEW POST:
-
-{newest_url}
-
---------------------------------
-
-This alert was generated automatically
-by the Truth Social Monitor.
-"""
-
+    # Send email
     email_sent = send_email(
-        email_subject,
-        email_body
+        subject,
+        body
     )
 
-    # -----------------------------------------
-    # Save new post after processing
-    # -----------------------------------------
+    # Save new post ONLY after processing it
+    save_latest_post_id(newest_id)
+
+    print("--------------------------------")
 
     if email_sent:
 
-        save_last_post(newest_post_id)
+        print("New post alert email sent successfully.")
 
     else:
 
-        print(
-            "Email was not sent."
-        )
-
-        print(
-            "The previous post ID was NOT updated "
-            "so the program can try again next run."
-        )
+        print("New post detected, but email was not sent.")
 
     print("================================")
     print("MONITOR COMPLETE")
     print("================================")
 
 
-# ============================================
-# START PROGRAM
-# ============================================
+# ============================================================
+# RUN PROGRAM
+# ============================================================
 
 if __name__ == "__main__":
-
     main()
