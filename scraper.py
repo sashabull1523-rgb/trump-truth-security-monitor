@@ -1,36 +1,71 @@
-from datetime import datetime
-import hashlib
+from playwright.sync_api import sync_playwright
+from config import TRUTH_SOCIAL_USERNAME
 
 
 def get_trump_posts():
 
+    url = f"https://truthsocial.com/@{TRUTH_SOCIAL_USERNAME}"
+
+    print("Starting Truth Social scraper...")
+    print(f"Opening: {url}")
+
     posts = []
 
-    # TEMPORARY TEST POST
-    # This tests the rest of your system
-    # before fixing the Truth Social connection
+    with sync_playwright() as p:
 
-    text = """
-    President Trump announces a new NATO defense policy
-    involving European allies and military cooperation.
-    """
+        browser = p.chromium.launch(
+            headless=True
+        )
 
-    post_id = hashlib.sha256(
-        text.encode()
-    ).hexdigest()
+        page = browser.new_page()
 
+        try:
 
-    posts.append({
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
 
-        "id": post_id,
+            page.wait_for_timeout(10000)
 
-        "date": datetime.now().isoformat(),
+            print("PAGE TITLE:")
+            print(page.title())
 
-        "text": text,
+            print("\nPAGE URL:")
+            print(page.url)
 
-        "url": "test"
+            print("\nPAGE TEXT:")
+            print(page.locator("body").inner_text()[:3000])
 
-    })
+            articles = page.locator("article")
 
+            count = articles.count()
+
+            print(f"\nNUMBER OF ARTICLES: {count}")
+
+            for i in range(min(count, 10)):
+
+                text = articles.nth(i).inner_text().strip()
+
+                if text:
+
+                    print("\n--- POST ---")
+                    print(text)
+
+                    posts.append({
+                        "text": text,
+                        "url": url
+                    })
+
+        except Exception as error:
+
+            print(
+                f"Truth Social scraper error: {error}"
+            )
+
+        finally:
+
+            browser.close()
 
     return posts
