@@ -1,29 +1,97 @@
-from scraper import get_trump_posts
+from playwright.sync_api import sync_playwright
+import os
+import time
 
 
-print("================================")
-print("TRUTH SOCIAL SCRAPER TEST")
-print("================================")
+TRUTH_USERNAME = os.environ.get("TRUTH_USERNAME")
+TRUTH_PASSWORD = os.environ.get("TRUTH_PASSWORD")
 
-posts = get_trump_posts()
 
-print("\n================================")
-print(f"TOTAL POSTS FOUND: {len(posts)}")
-print("================================")
+def main():
 
-if len(posts) == 0:
+    print("================================")
+    print("TRUTH SOCIAL PLAYWRIGHT TEST")
+    print("================================")
 
-    print("NO POSTS FOUND")
+    if not TRUTH_USERNAME:
+        print("ERROR: TRUTH_USERNAME secret is missing")
+        return
 
-else:
+    if not TRUTH_PASSWORD:
+        print("ERROR: TRUTH_PASSWORD secret is missing")
+        return
 
-    print("SCRAPER SUCCESSFUL")
+    print("Truth Social credentials detected.")
+    print("Opening Truth Social...")
 
-    for i, post in enumerate(posts, 1):
+    with sync_playwright() as p:
 
-        print("\n")
-        print(f"POST {i}")
-        print("-----------------------------")
-        print(post["text"])
-        print(f"Date: {post['date']}")
-        print(f"URL: {post['url']}")
+        browser = p.chromium.launch(
+            headless=True
+        )
+
+        page = browser.new_page(
+            viewport={
+                "width": 1280,
+                "height": 900
+            }
+        )
+
+        try:
+
+            page.goto(
+                "https://truthsocial.com",
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+
+            print("Truth Social opened.")
+
+            time.sleep(5)
+
+            print("Current URL:")
+            print(page.url)
+
+            print("Page title:")
+            print(page.title())
+
+            print("Looking at visible page text...")
+
+            text = page.locator("body").inner_text(
+                timeout=30000
+            )
+
+            print("--------------------------------")
+            print(text[:10000])
+            print("--------------------------------")
+
+            print("Looking for login elements...")
+
+            links = page.locator("a").all_inner_texts()
+
+            print("LINKS:")
+            for link in links[:100]:
+                print(repr(link))
+
+            buttons = page.locator("button").all_inner_texts()
+
+            print("BUTTONS:")
+            for button in buttons[:100]:
+                print(repr(button))
+
+            print("================================")
+            print("PAGE INSPECTION COMPLETE")
+            print("================================")
+
+        except Exception as e:
+
+            print("ERROR:")
+            print(str(e))
+
+        finally:
+
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()
