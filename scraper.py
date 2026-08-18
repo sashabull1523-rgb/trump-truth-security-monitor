@@ -1,26 +1,12 @@
-
 from playwright.sync_api import sync_playwright
-from datetime import datetime
-import hashlib
-import os
+import time
 
-from config import TRUTH_SOCIAL_USERNAME
-
-
-TRUTH_SOCIAL_PASSWORD = os.getenv("TRUTH_SOCIAL_PASSWORD")
+from config import TRUTH_USERNAME, TRUTH_PASSWORD
 
 
 def get_trump_posts():
 
     posts = []
-
-    username = TRUTH_SOCIAL_USERNAME
-
-    if not TRUTH_SOCIAL_PASSWORD:
-        print("ERROR: TRUTH_SOCIAL_PASSWORD is not configured.")
-        return posts
-
-    profile_url = f"https://truthsocial.com/@{username}"
 
     with sync_playwright() as p:
 
@@ -28,176 +14,101 @@ def get_trump_posts():
             headless=True
         )
 
-        context = browser.new_context()
-
-        page = context.new_page()
+        page = browser.new_page()
 
         try:
 
             print("Opening Truth Social...")
 
             page.goto(
-                "https://truthsocial.com/",
+                "https://truthsocial.com",
                 wait_until="domcontentloaded",
                 timeout=60000
             )
 
             print("Truth Social opened.")
 
-            # Look for login controls
-            page.wait_for_timeout(5000)
+            # Look for the login button
+            page.get_by_text("Log in", exact=True).click()
 
-            print("Page title:", page.title())
+            time.sleep(3)
 
-            # Try to find a login button
-            login_button = page.get_by_text(
-                "Log in",
-                exact=True
-            )
+            print("Login page opened.")
 
-            if login_button.count() > 0:
+            # Enter username/email
+            page.locator(
+                'input[type="text"], input[type="email"]'
+            ).first.fill(TRUTH_USERNAME)
 
-                print("Login button found.")
-
-                login_button.first.click()
-
-                page.wait_for_timeout(3000)
-
-            else:
-
-                print("Login button not found.")
-
-            # Look for username/email field
-            username_field = page.locator(
-                'input[type="email"], input[name="email"], input[name="username"]'
-            )
-
-            if username_field.count() == 0:
-
-                print("Username/email field not found.")
-                print("Current URL:", page.url)
-
-                browser.close()
-                return posts
-
-            username_field.first.fill(
-                username
-            )
-
-            password_field = page.locator(
+            # Enter password
+            page.locator(
                 'input[type="password"]'
-            )
+            ).fill(TRUTH_PASSWORD)
 
-            if password_field.count() == 0:
-
-                print("Password field not found.")
-
-                browser.close()
-                return posts
-
-            password_field.first.fill(
-                TRUTH_SOCIAL_PASSWORD
-            )
-
-            print("Login information entered.")
-
-            # Find submit/login button
-            submit_button = page.locator(
-                'button[type="submit"]'
-            )
-
-            if submit_button.count() > 0:
-
-                submit_button.first.click()
-
-            else:
-
-                page.get_by_text(
-                    "Log in",
-                    exact=True
-                ).last.click()
+            # Submit login
+            page.get_by_role(
+                "button",
+                name="Log in"
+            ).click()
 
             print("Login submitted.")
 
-            page.wait_for_timeout(8000)
-
-            print("Current URL after login:", page.url)
+            time.sleep(8)
 
             # Go directly to Trump's profile
             page.goto(
-                profile_url,
+                "https://truthsocial.com/@realDonaldTrump",
                 wait_until="domcontentloaded",
                 timeout=60000
             )
 
-            page.wait_for_timeout(8000)
+            time.sleep(5)
 
             print("Trump profile opened.")
 
-            print("Profile URL:", page.url)
-
-            articles = page.locator(
-                "article"
-            )
+            # Find posts on the page
+            articles = page.locator("article")
 
             count = articles.count()
 
-            print(
-                "Articles found:",
-                count
-            )
+            print(f"Found {count} possible posts.")
 
-            for i in range(
-                min(count, 20)
-            ):
+            for i in range(count):
+
+                article = articles.nth(i)
 
                 try:
 
-                    text = articles.nth(i).inner_text()
+                    text = article.inner_text()
 
-                    if len(text.strip()) < 30:
+                    if not text.strip():
                         continue
 
-                    post_id = hashlib.sha256(
-                        text.encode("utf-8")
-                    ).hexdigest()
-
                     posts.append({
-
-                        "id": post_id,
-
-                        "date":
-                        datetime.now().isoformat(),
-
-                        "text":
-                        text.strip(),
-
-                        "url":
-                        profile_url
-
+                        "id": str(i),
+                        "date": "",
+                        "text": text,
+                        "url": page.url
                     })
 
                 except Exception as error:
 
                     print(
-                        "Could not read post:",
-                        error
+                        f"Could not read post {i}: {error}"
                     )
-
-            print(
-                "Posts collected:",
-                len(posts)
-            )
 
         except Exception as error:
 
             print(
-                "Truth Social Playwright error:",
-                error
+                f"Truth Social scraper error: {error}"
             )
 
         finally:
 
             browser.close()
+
+    print(
+        f"TOTAL POSTS FOUND: {len(posts)}"
+    )
 
     return posts
