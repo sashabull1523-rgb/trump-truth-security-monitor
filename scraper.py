@@ -1,95 +1,203 @@
-import requests
-from bs4 import BeautifulSoup
+
+from playwright.sync_api import sync_playwright
 from datetime import datetime
 import hashlib
+import os
+
+from config import TRUTH_SOCIAL_USERNAME
 
 
-TRUMP_ACCOUNT_ID = "107780257626128497"
-
-TRUTH_API_URL = (
-    f"https://truthsocial.com/api/v1/accounts/"
-    f"{TRUMP_ACCOUNT_ID}/statuses"
-)
+TRUTH_SOCIAL_PASSWORD = os.getenv("TRUTH_SOCIAL_PASSWORD")
 
 
 def get_trump_posts():
 
-    print("Starting Truth Social API scraper...")
-    print(f"Requesting: {TRUTH_API_URL}")
-
     posts = []
 
-    try:
+    username = TRUTH_SOCIAL_USERNAME
 
-        response = requests.get(
-            TRUTH_API_URL,
-            params={
-                "limit": 20
-            },
-            headers={
-                "User-Agent": "Mozilla/5.0"
-            },
-            timeout=30
+    if not TRUTH_SOCIAL_PASSWORD:
+        print("ERROR: TRUTH_SOCIAL_PASSWORD is not configured.")
+        return posts
+
+    profile_url = f"https://truthsocial.com/@{username}"
+
+    with sync_playwright() as p:
+
+        browser = p.chromium.launch(
+            headless=True
         )
 
-        print(f"HTTP STATUS: {response.status_code}")
+        context = browser.new_context()
 
-        response.raise_for_status()
+        page = context.new_page()
 
-        data = response.json()
+        try:
 
-        print(f"POSTS RECEIVED: {len(data)}")
+            print("Opening Truth Social...")
 
-        for status in data:
-
-            html = status.get("content", "")
-
-            soup = BeautifulSoup(
-                html,
-                "html.parser"
+            page.goto(
+                "https://truthsocial.com/",
+                wait_until="domcontentloaded",
+                timeout=60000
             )
 
-            text = soup.get_text(
-                " ",
-                strip=True
+            print("Truth Social opened.")
+
+            # Look for login controls
+            page.wait_for_timeout(5000)
+
+            print("Page title:", page.title())
+
+            # Try to find a login button
+            login_button = page.get_by_text(
+                "Log in",
+                exact=True
             )
 
-            if not text:
-                continue
+            if login_button.count() > 0:
 
-            post_id = status.get("id")
+                print("Login button found.")
 
-            created_at = status.get(
-                "created_at"
+                login_button.first.click()
+
+                page.wait_for_timeout(3000)
+
+            else:
+
+                print("Login button not found.")
+
+            # Look for username/email field
+            username_field = page.locator(
+                'input[type="email"], input[name="email"], input[name="username"]'
             )
 
-            post_url = status.get(
-                "url"
+            if username_field.count() == 0:
+
+                print("Username/email field not found.")
+                print("Current URL:", page.url)
+
+                browser.close()
+                return posts
+
+            username_field.first.fill(
+                username
             )
 
-            posts.append({
+            password_field = page.locator(
+                'input[type="password"]'
+            )
 
-                "id": post_id,
+            if password_field.count() == 0:
 
-                "date": created_at,
+                print("Password field not found.")
 
-                "text": text,
+                browser.close()
+                return posts
 
-                "url": post_url
+            password_field.first.fill(
+                TRUTH_SOCIAL_PASSWORD
+            )
 
-            })
+            print("Login information entered.")
 
-            print("\n-----------------------------")
-            print("TRUMP POST")
-            print("-----------------------------")
-            print(text)
-            print(f"DATE: {created_at}")
-            print(f"URL: {post_url}")
+            # Find submit/login button
+            submit_button = page.locator(
+                'button[type="submit"]'
+            )
 
-    except Exception as error:
+            if submit_button.count() > 0:
 
-        print(
-            f"Truth Social API error: {error}"
-        )
+                submit_button.first.click()
+
+            else:
+
+                page.get_by_text(
+                    "Log in",
+                    exact=True
+                ).last.click()
+
+            print("Login submitted.")
+
+            page.wait_for_timeout(8000)
+
+            print("Current URL after login:", page.url)
+
+            # Go directly to Trump's profile
+            page.goto(
+                profile_url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+
+            page.wait_for_timeout(8000)
+
+            print("Trump profile opened.")
+
+            print("Profile URL:", page.url)
+
+            articles = page.locator(
+                "article"
+            )
+
+            count = articles.count()
+
+            print(
+                "Articles found:",
+                count
+            )
+
+            for i in range(
+                min(count, 20)
+            ):
+
+                try:
+
+                    text = articles.nth(i).inner_text()
+
+                    if len(text.strip()) < 30:
+                        continue
+
+                    post_id = hashlib.sha256(
+                        text.encode("utf-8")
+                    ).hexdigest()
+
+                    posts.append({
+
+                        "id": post_id,
+
+                        "date":
+                        datetime.now().isoformat(),
+
+                        "text":
+                        text.strip(),
+
+                        "url":
+                        profile_url
+
+                    })
+
+                except Exception as error:
+
+                    print(
+                        "Could not read post:",
+                        error
+                    )
+
+            print(
+                "Posts collected:",
+                len(posts)
+            )
+
+        except Exception as error:
+
+            print(
+                "Truth Social Playwright error:",
+                error
+            )
+
+        finally:
+
+            browser.close()
 
     return posts
