@@ -1,15 +1,15 @@
-
 import os
 import requests
 from dotenv import load_dotenv
 
 
-# Load environment variables
 load_dotenv()
 
 
 TRUTH_API_KEY = os.environ.get("TRUTH_API_KEY")
 TRUTH_API_URL = os.environ.get("TRUTH_API_URL")
+
+TARGET_URL = "https://truthsocial.com/@realDonaldTrump"
 
 
 def main():
@@ -18,7 +18,6 @@ def main():
     print("TRUTH SOCIAL API MONITOR")
     print("================================")
 
-    # Check that required secrets exist
     if not TRUTH_API_KEY:
         print("ERROR: TRUTH_API_KEY secret is missing")
         return
@@ -30,19 +29,22 @@ def main():
     print("API credentials detected.")
     print("Connecting to authorized Truth Social data source...")
 
-    # API headers
     headers = {
         "Authorization": f"Bearer {TRUTH_API_KEY}",
         "Accept": "application/json",
         "User-Agent": "Truth-Social-Monitor/1.0"
     }
 
+    params = {
+        "url": TARGET_URL
+    }
+
     try:
 
-        # Make API request
         response = requests.get(
             TRUTH_API_URL,
             headers=headers,
+            params=params,
             timeout=30
         )
 
@@ -50,52 +52,47 @@ def main():
         print("HTTP status:", response.status_code)
         print("--------------------------------")
 
-        # Print API response so we can diagnose errors
+        print("Requested URL:")
+        print(TARGET_URL)
+
+        print("--------------------------------")
         print("API response:")
-        print(response.text[:5000])
+        print(response.text[:10000])
         print("--------------------------------")
 
-        # Handle errors
         if response.status_code >= 400:
 
             print("API REQUEST FAILED")
-            print("The API rejected the request.")
             print("Status code:", response.status_code)
 
             if response.status_code == 401:
                 print("The API key is invalid or unauthorized.")
 
             elif response.status_code == 403:
-                print("The API key does not have permission to access this resource.")
+                print("The API key does not have permission.")
 
             elif response.status_code == 404:
                 print("The API endpoint was not found.")
 
             elif response.status_code == 422:
-                print(
-                    "The API understood the request but rejected "
-                    "the parameters or request format."
-                )
+                print("The API rejected the request parameters.")
 
             return
 
-        # Try to parse JSON
         try:
 
             data = response.json()
 
             print("JSON response received successfully.")
+
             print("--------------------------------")
+            print("DATA:")
             print(data)
             print("--------------------------------")
 
         except ValueError:
 
-            print("WARNING: API response was not valid JSON.")
-            print("Raw response:")
-            print(response.text[:5000])
-
-            return
+            print("WARNING: Response was not valid JSON.")
 
         print("================================")
         print("API REQUEST SUCCESSFUL")
