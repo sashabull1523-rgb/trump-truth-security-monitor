@@ -1,4 +1,3 @@
-````python
 import os
 import json
 import smtplib
@@ -12,9 +11,10 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 
-
 # ============================================================
+
 # CONFIGURATION
+
 # ============================================================
 
 load_dotenv()
@@ -32,801 +32,595 @@ TARGET_URL = "https://truthsocial.com/@realDonaldTrump"
 
 TIMEZONE = ZoneInfo("America/Denver")
 
-# Request a reasonable number per API page.
-PAGE_LIMIT = 40
+# Request enough posts to cover a full day.
 
-# Safety limit so the workflow cannot accidentally make
-# hundreds of API requests.
-MAX_PAGES = 10
-
+POSTS_TO_REQUEST = 40
 
 # ============================================================
-# CONFIGURATION CHECK
+
+# VALIDATE CONFIGURATION
+
 # ============================================================
 
 def validate_configuration():
 
-    required = {
-        "TRUTH_API_KEY": TRUTH_API_KEY,
-        "TRUTH_API_URL": TRUTH_API_URL,
-        "EMAIL_ADDRESS": EMAIL_ADDRESS,
-        "EMAIL_PASSWORD": EMAIL_PASSWORD,
-        "EMAIL_TO": EMAIL_TO,
-        "OPENAI_API_KEY": OPENAI_API_KEY,
-    }
+```
+required = {
+    "TRUTH_API_KEY": TRUTH_API_KEY,
+    "TRUTH_API_URL": TRUTH_API_URL,
+    "EMAIL_ADDRESS": EMAIL_ADDRESS,
+    "EMAIL_PASSWORD": EMAIL_PASSWORD,
+    "EMAIL_TO": EMAIL_TO,
+    "OPENAI_API_KEY": OPENAI_API_KEY,
+}
 
-    missing = [
-        name
-        for name, value in required.items()
-        if not value
-    ]
+missing = [
+    name
+    for name, value in required.items()
+    if not value
+]
 
-    if missing:
+if missing:
 
-        print("ERROR: Missing required secrets:")
+    print("ERROR: Missing required secrets:")
 
-        for name in missing:
-            print(" -", name)
+    for name in missing:
+        print(" -", name)
 
-        return False
+    return False
 
-    return True
-
-
-# ============================================================
-# DATE PARSING
-# ============================================================
-
-def parse_post_time(post):
-
-    possible_fields = [
-        "created_at",
-        "createdAt",
-        "published_at",
-        "publishedAt",
-        "timestamp",
-        "date",
-    ]
-
-    value = None
-
-    for field in possible_fields:
-
-        if post.get(field) is not None:
-
-            value = post.get(field)
-
-            break
-
-    if value is None:
-        return None
-
-    try:
-
-        # Unix timestamp
-        if isinstance(value, (int, float)):
-
-            return datetime.fromtimestamp(
-                value,
-                tz=timezone.utc
-            )
-
-        value = str(value).strip()
-
-        if value.endswith("Z"):
-
-            value = value[:-1] + "+00:00"
-
-        parsed = datetime.fromisoformat(value)
-
-        if parsed.tzinfo is None:
-
-            parsed = parsed.replace(
-                tzinfo=timezone.utc
-            )
-
-        return parsed.astimezone(timezone.utc)
-
-    except Exception:
-
-        return None
-
+return True
+```
 
 # ============================================================
-# API REQUEST
-# ============================================================
 
-def request_truth_posts(params):
+# GET TRUMP'S POSTS
 
-    headers = {
-        "Authorization": f"Bearer {TRUTH_API_KEY}",
-        "Accept": "application/json",
-        "User-Agent": "Trump-International-Affairs-Monitor/2.0",
-    }
-
-    try:
-
-        response = requests.get(
-            TRUTH_API_URL,
-            headers=headers,
-            params=params,
-            timeout=30,
-        )
-
-        print(
-            "API request:",
-            response.url
-        )
-
-        print(
-            "HTTP status:",
-            response.status_code
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        if not data.get("success"):
-
-            print("ERROR: API returned unsuccessful response.")
-            print(data)
-
-            return None
-
-        posts = data.get(
-            "data",
-            {}
-        ).get(
-            "posts",
-            []
-        )
-
-        return posts
-
-    except requests.exceptions.Timeout:
-
-        print("ERROR: API request timed out.")
-
-        return None
-
-    except requests.exceptions.RequestException as e:
-
-        print("ERROR: API request failed.")
-        print(str(e))
-
-        return None
-
-    except ValueError:
-
-        print("ERROR: API response was not valid JSON.")
-
-        return None
-
-
-# ============================================================
-# GET ALL POSTS FROM PREVIOUS 24 HOURS
 # ============================================================
 
 def get_truth_social_posts():
 
-    now = datetime.now(timezone.utc)
+```
+headers = {
+    "Authorization": f"Bearer {TRUTH_API_KEY}",
+    "Accept": "application/json",
+    "User-Agent": "Trump-International-Affairs-Monitor/1.0",
+}
 
-    cutoff = now - timedelta(hours=24)
+params = {
+    "url": TARGET_URL,
+    "limit": POSTS_TO_REQUEST,
+}
 
-    print()
-    print("================================================")
-    print("TRUTH SOCIAL COLLECTION")
-    print("================================================")
+print("--------------------------------")
+print("Connecting to Truth Social data source...")
+print("--------------------------------")
 
-    print(
-        "Current UTC:",
-        now.isoformat()
+try:
+
+    response = requests.get(
+        TRUTH_API_URL,
+        headers=headers,
+        params=params,
+        timeout=30,
     )
 
-    print(
-        "24-hour cutoff:",
-        cutoff.isoformat()
+    print("HTTP status:", response.status_code)
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    print("--------------------------------")
+    print("JSON response received successfully.")
+    print("--------------------------------")
+
+    if not data.get("success"):
+
+        print("ERROR: API returned unsuccessful response.")
+        print(data)
+
+        return None
+
+    posts = data.get(
+        "data",
+        {}
+    ).get(
+        "posts",
+        []
     )
 
-    all_posts = []
+    print("Posts retrieved:", len(posts))
 
-    max_id = None
+    return posts
 
-    for page_number in range(
-        1,
-        MAX_PAGES + 1
-    ):
+except requests.exceptions.Timeout:
 
-        params = {
-            "url": TARGET_URL,
-            "limit": PAGE_LIMIT,
-        }
+    print("ERROR: Truth Social request timed out.")
 
-        # If the API supports Mastodon-style pagination,
-        # max_id retrieves older posts.
-        if max_id:
+    return None
 
-            params["max_id"] = max_id
+except requests.exceptions.RequestException as e:
 
-        print()
-        print(
-            f"Requesting page {page_number}..."
-        )
+    print("ERROR: Truth Social request failed.")
+    print(str(e))
 
-        posts = request_truth_posts(
-            params
-        )
+    return None
 
-        if posts is None:
+except ValueError:
 
-            return None
+    print("ERROR: Truth Social response was not valid JSON.")
 
-        if not posts:
-
-            print(
-                "No more posts returned."
-            )
-
-            break
-
-        print(
-            "Posts returned:",
-            len(posts)
-        )
-
-        all_posts.extend(posts)
-
-        # ----------------------------------------------------
-        # Determine oldest post on this page
-        # ----------------------------------------------------
-
-        parsed_times = []
-
-        for post in posts:
-
-            post_time = parse_post_time(
-                post
-            )
-
-            if post_time:
-
-                parsed_times.append(
-                    post_time
-                )
-
-        if parsed_times:
-
-            oldest_time = min(
-                parsed_times
-            )
-
-            newest_time = max(
-                parsed_times
-            )
-
-            print(
-                "Newest post on page:",
-                newest_time.isoformat()
-            )
-
-            print(
-                "Oldest post on page:",
-                oldest_time.isoformat()
-            )
-
-            # Once the page reaches before the cutoff,
-            # we have enough historical posts.
-            if oldest_time < cutoff:
-
-                print(
-                    "Reached the 24-hour cutoff."
-                )
-
-                break
-
-        # ----------------------------------------------------
-        # Pagination cursor
-        # ----------------------------------------------------
-
-        ids = [
-            str(post.get("id"))
-            for post in posts
-            if post.get("id") is not None
-        ]
-
-        if not ids:
-
-            print(
-                "No post IDs available for pagination."
-            )
-
-            break
-
-        max_id = ids[-1]
-
-        # If fewer posts than requested were returned,
-        # there may be no more pages.
-        if len(posts) < PAGE_LIMIT:
-
-            print(
-                "Returned fewer than page limit; "
-                "assuming final page."
-            )
-
-            break
-
-    # --------------------------------------------------------
-    # Remove duplicates
-    # --------------------------------------------------------
-
-    unique_posts = {}
-
-    for post in all_posts:
-
-        post_id = post.get("id")
-
-        if post_id:
-
-            unique_posts[str(post_id)] = post
-
-    posts = list(
-        unique_posts.values()
-    )
-
-    print()
-    print(
-        "Total unique posts collected:",
-        len(posts)
-    )
-
-    # --------------------------------------------------------
-    # Filter previous 24 hours
-    # --------------------------------------------------------
-
-    recent_posts = []
-
-    for post in posts:
-
-        post_time = parse_post_time(
-            post
-        )
-
-        if post_time is None:
-
-            print(
-                "WARNING: Could not determine time for:",
-                post.get("id")
-            )
-
-            continue
-
-        if post_time >= cutoff:
-
-            recent_posts.append(
-                post
-            )
-
-    recent_posts.sort(
-        key=lambda post:
-            parse_post_time(post)
-            or datetime.min.replace(
-                tzinfo=timezone.utc
-            )
-    )
-
-    print(
-        "Posts from previous 24 hours:",
-        len(recent_posts)
-    )
-
-    print("================================================")
-
-    return recent_posts
-
+    return None
+```
 
 # ============================================================
-# CLEAN HTML
+
+# FIND POST TIME
+
+# ============================================================
+
+def parse_post_time(post):
+
+```
+# Truth Social / Mastodon-style APIs normally use
+# created_at, but we check several possible formats.
+
+possible_fields = [
+    "created_at",
+    "createdAt",
+    "published_at",
+    "publishedAt",
+    "timestamp",
+    "date",
+    "created",
+]
+
+value = None
+
+for field in possible_fields:
+
+    if post.get(field) is not None:
+
+        value = post.get(field)
+
+        break
+
+if value is None:
+
+    return None
+
+try:
+
+    # Unix timestamp
+    if isinstance(value, (int, float)):
+
+        return datetime.fromtimestamp(
+            value,
+            tz=timezone.utc
+        )
+
+    value = str(value).strip()
+
+    # Handle Zulu time
+    if value.endswith("Z"):
+
+        value = value[:-1] + "+00:00"
+
+    parsed = datetime.fromisoformat(value)
+
+    if parsed.tzinfo is None:
+
+        parsed = parsed.replace(
+            tzinfo=timezone.utc
+        )
+
+    return parsed.astimezone(timezone.utc)
+
+except Exception:
+
+    return None
+```
+
+# ============================================================
+
+# GET POSTS FROM PREVIOUS 24 HOURS
+
+# ============================================================
+
+def get_posts_from_last_24_hours(posts):
+
+```
+now = datetime.now(timezone.utc)
+
+cutoff = now - timedelta(hours=24)
+
+recent_posts = []
+
+print("--------------------------------")
+print("Current UTC time:", now.isoformat())
+print("24-hour cutoff:", cutoff.isoformat())
+print("--------------------------------")
+
+for post in posts:
+
+    post_id = post.get(
+        "id",
+        "unknown"
+    )
+
+    post_time = parse_post_time(post)
+
+    if post_time is None:
+
+        print(
+            "WARNING: Could not determine time for post:",
+            post_id
+        )
+
+        # Do NOT include posts whose time cannot be
+        # determined. This prevents old posts from
+        # being incorrectly included in the digest.
+
+        continue
+
+    print(
+        "Post",
+        post_id,
+        "time:",
+        post_time.isoformat()
+    )
+
+    if post_time >= cutoff:
+
+        recent_posts.append(post)
+
+# Oldest -> newest
+recent_posts.sort(
+    key=lambda post: (
+        parse_post_time(post)
+        or datetime.min.replace(
+            tzinfo=timezone.utc
+        )
+    )
+)
+
+print("--------------------------------")
+print(
+    "Posts from previous 24 hours:",
+    len(recent_posts)
+)
+print("--------------------------------")
+
+return recent_posts
+```
+
+# ============================================================
+
+# CLEAN POST CONTENT
+
 # ============================================================
 
 def clean_content(content):
 
-    if not content:
+```
+if not content:
 
-        return ""
+    return ""
 
-    soup = BeautifulSoup(
-        content,
-        "html.parser"
-    )
+soup = BeautifulSoup(
+    content,
+    "html.parser"
+)
 
-    return soup.get_text(
-        separator=" ",
-        strip=True
-    )
-
-
-# ============================================================
-# EXTRACT IMAGE INFORMATION
-# ============================================================
-
-def get_media_information(post):
-
-    media = []
-
-    possible_fields = [
-        "media_attachments",
-        "mediaAttachments",
-        "media",
-    ]
-
-    attachments = []
-
-    for field in possible_fields:
-
-        if isinstance(
-            post.get(field),
-            list
-        ):
-
-            attachments = post.get(field)
-
-            break
-
-    for attachment in attachments:
-
-        if not isinstance(
-            attachment,
-            dict
-        ):
-
-            continue
-
-        description = (
-            attachment.get("description")
-            or attachment.get("alt")
-            or attachment.get("alt_text")
-            or ""
-        )
-
-        media_type = (
-            attachment.get("type")
-            or ""
-        )
-
-        if description:
-
-            media.append(
-                f"{media_type}: {description}"
-            )
-
-        elif media_type:
-
-            media.append(
-                f"{media_type} attachment"
-            )
-
-    return media
-
+return soup.get_text(
+    separator=" ",
+    strip=True
+)
+```
 
 # ============================================================
+
 # PREPARE POSTS FOR AI
+
 # ============================================================
 
 def prepare_posts_for_ai(posts):
 
-    prepared = []
+```
+prepared = []
 
-    for index, post in enumerate(posts):
+for index, post in enumerate(posts):
 
-        post_id = post.get(
-            "id",
-            f"unknown-{index}"
+    post_id = post.get(
+        "id",
+        f"unknown-{index}"
+    )
+
+    content = clean_content(
+        post.get(
+            "content",
+            ""
+        )
+    )
+
+    post_time = parse_post_time(post)
+
+    if post_time:
+
+        timestamp = post_time.astimezone(
+            TIMEZONE
+        ).strftime(
+            "%B %d, %Y at %I:%M %p %Z"
         )
 
-        content = clean_content(
-            post.get(
-                "content",
-                ""
-            )
+    else:
+
+        timestamp = "Unknown time"
+
+    post_url = post.get("url")
+
+    if not post_url:
+
+        post_url = (
+            "https://truthsocial.com/"
+            f"@realDonaldTrump/{post_id}"
         )
 
-        post_time = parse_post_time(
-            post
-        )
+    prepared.append({
+        "id": str(post_id),
+        "time": timestamp,
+        "content": content,
+        "url": post_url,
+    })
 
-        if post_time:
-
-            timestamp = post_time.astimezone(
-                TIMEZONE
-            ).strftime(
-                "%B %d, %Y at %I:%M %p %Z"
-            )
-
-        else:
-
-            timestamp = "Unknown time"
-
-        post_url = post.get("url")
-
-        if not post_url:
-
-            post_url = (
-                "https://truthsocial.com/"
-                f"@realDonaldTrump/{post_id}"
-            )
-
-        media = get_media_information(
-            post
-        )
-
-        prepared.append({
-
-            "id": str(post_id),
-
-            "time": timestamp,
-
-            "content": content,
-
-            "media": media,
-
-            "url": post_url,
-
-        })
-
-    return prepared
-
+return prepared
+```
 
 # ============================================================
+
 # AI CLASSIFICATION
+
 # ============================================================
 
 def classify_posts(posts):
 
-    if not posts:
+```
+if not posts:
 
-        return []
+    return []
 
-    client = OpenAI(
-        api_key=OPENAI_API_KEY
-    )
+client = OpenAI(
+    api_key=OPENAI_API_KEY
+)
 
-    post_text = json.dumps(
-        posts,
-        ensure_ascii=False,
-        indent=2,
-    )
+post_text = json.dumps(
+    posts,
+    ensure_ascii=False,
+    indent=2,
+)
 
-    prompt = f"""
-You are an analyst monitoring Donald Trump's public
-statements for INTERNATIONAL AFFAIRS and NATIONAL SECURITY.
+prompt = f"""
+```
 
-You are reviewing every Truth Social post from the previous
-24 hours.
+You are an expert analyst monitoring Donald Trump's
+public statements for a national-security and
+international-affairs research project.
 
-Your task is to identify posts that meaningfully concern
-international affairs.
+Your task is to identify posts that are genuinely
+about INTERNATIONAL AFFAIRS.
 
-IMPORTANT:
-Be reasonably inclusive.
+Do not classify a post as international merely because
+it could indirectly affect foreign policy.
 
-If a post clearly discusses a foreign country, foreign
-government, foreign leader, international conflict,
-international security, diplomacy, foreign military activity,
-international trade, sanctions, tariffs involving another
-country, nuclear weapons in an international context, NATO,
-Ukraine, Russia, China, Taiwan, Iran, Israel, Gaza, Europe,
-the Middle East, or another international issue, INCLUDE IT.
+INCLUDE a post when international affairs is a meaningful
+and explicit part of the post.
 
-Also include posts where the international component is
-important even if the post contains domestic political
-language.
+Include topics such as:
 
-Do NOT require Trump to explicitly say "international
-affairs."
+* Foreign countries
+* Foreign governments
+* Foreign leaders
+* Presidents or prime ministers of other countries
+* Wars or armed conflicts
+* Ukraine
+* Russia
+* NATO
+* European security
+* China
+* Taiwan
+* Iran
+* Israel
+* Gaza
+* Middle East conflicts
+* Foreign military operations
+* U.S. relations with another country
+* Diplomacy
+* International organizations
+* United Nations
+* NATO
+* Sanctions
+* Foreign aid
+* International treaties
+* International agreements
+* Nuclear weapons or nuclear deterrence
+  when discussed in an international context
+* Tariffs when clearly connected to foreign relations
+* International trade disputes
+* Foreign policy
+* International security
+* Threats involving another country
+* Meetings or negotiations with foreign leaders
 
-Examples that SHOULD generally be included:
+IMPORTANT EXAMPLES:
 
-- Trump discussing Iran
-- Trump discussing Iran's nuclear program
-- Trump discussing Iran's military
-- Trump discussing Israel or Gaza
-- Trump discussing Russia or Ukraine
-- Trump discussing NATO
-- Trump discussing China or Taiwan
-- Trump discussing foreign leaders
-- Trump discussing a foreign government
-- Trump discussing sanctions
-- Trump discussing foreign tariffs or trade
-- Trump discussing foreign military operations
-- Trump discussing international negotiations
-- Trump discussing foreign aid
-- Trump discussing international organizations
-- Trump discussing nuclear weapons involving another country
-- Trump discussing territorial disputes involving another country
+If Trump says something like:
 
-Posts that are purely about domestic U.S. politics should NOT
-be included.
+"I spoke with President X of France today..."
 
-Posts attacking a domestic political opponent should NOT be
-included unless the post also meaningfully discusses an
-international issue.
+INCLUDE IT.
 
-IMPORTANT ABOUT IMAGES:
+If Trump discusses:
 
-Some posts contain images or image descriptions.
+"Russia's war in Ukraine..."
 
-Use the supplied media descriptions when determining whether
-a post concerns international affairs.
+INCLUDE IT.
 
-If the text is ambiguous but the supplied media description
-clearly identifies an international subject, INCLUDE the post.
+If Trump discusses:
 
-Do NOT invent facts about an image that are not provided.
+"NATO allies need to..."
 
-For every selected post, provide a short factual explanation.
+INCLUDE IT.
+
+If Trump discusses:
+
+"China's trade practices..."
+
+INCLUDE IT.
+
+If Trump attacks a domestic American politician
+and there is no meaningful international component:
+
+DO NOT INCLUDE IT.
+
+If Trump discusses a domestic issue such as crime,
+elections, Congress, or a domestic political opponent
+without a meaningful international component:
+
+DO NOT INCLUDE IT.
+
+If a post mentions a foreign country only in passing
+but the actual subject is domestic politics:
+
+DO NOT INCLUDE IT.
+
+Do not infer an international connection that is not
+present in the actual text.
+
+For every included post, give a short explanation.
 
 Return ONLY valid JSON.
 
 Use exactly this structure:
 
 {{
-    "international_posts": [
-        {{
-            "id": "POST_ID",
-            "reason": "Why this post meaningfully concerns international affairs"
-        }}
-    ]
+"international_posts": [
+{{
+"id": "post id",
+"reason": "brief explanation"
+}}
+]
 }}
 
-Posts to analyze:
+If there are no qualifying posts, return:
+
+{{
+"international_posts": []
+}}
+
+Here are Trump's posts from the previous 24 hours:
 
 {post_text}
 """
 
-    print()
-    print("================================================")
-    print("AI CLASSIFICATION")
-    print("================================================")
+```
+print("--------------------------------")
+print("Sending posts to AI for classification...")
+print("--------------------------------")
 
-    try:
+try:
 
-        response = client.responses.create(
-            model="gpt-5.6",
-            input=prompt,
+    response = client.responses.create(
+        model="gpt-5.6",
+        input=prompt,
+    )
+
+    text = response.output_text.strip()
+
+    print("AI classification received.")
+
+    result = json.loads(text)
+
+    international_ids = {
+        str(item["id"]): item.get(
+            "reason",
+            ""
         )
-
-        text = response.output_text.strip()
-
-        print(
-            "AI response received."
-        )
-
-        # ----------------------------------------------------
-        # Handle accidental markdown fences
-        # ----------------------------------------------------
-
-        if text.startswith("```"):
-
-            text = text.replace(
-                "```json",
-                "",
-                1
-            )
-
-            text = text.replace(
-                "```",
-                "",
-            ).strip()
-
-        result = json.loads(
-            text
-        )
-
-        international_ids = {}
-
         for item in result.get(
             "international_posts",
             []
-        ):
+        )
+    }
 
-            post_id = item.get(
-                "id"
+    selected = []
+
+    for post in posts:
+
+        post_id = str(
+            post["id"]
+        )
+
+        if post_id in international_ids:
+
+            post_copy = post.copy()
+
+            post_copy["reason"] = (
+                international_ids[post_id]
             )
 
-            if post_id:
-
-                international_ids[
-                    str(post_id)
-                ] = item.get(
-                    "reason",
-                    "International-affairs relevance identified."
-                )
-
-        selected = []
-
-        for post in posts:
-
-            post_id = str(
-                post.get("id")
+            selected.append(
+                post_copy
             )
 
-            if post_id in international_ids:
+    print("--------------------------------")
+    print(
+        "International-affairs posts:",
+        len(selected)
+    )
+    print("--------------------------------")
 
-                copy_post = post.copy()
+    return selected
 
-                copy_post["reason"] = (
-                    international_ids[
-                        post_id
-                    ]
-                )
+except json.JSONDecodeError as e:
 
-                selected.append(
-                    copy_post
-                )
+    print("ERROR: AI returned invalid JSON.")
+    print(str(e))
 
-        print(
-            "International-affairs posts:",
-            len(selected)
-        )
+    return []
 
-        print("================================================")
+except Exception as e:
 
-        return selected
+    print("ERROR: AI classification failed.")
+    print(str(e))
 
-    except json.JSONDecodeError as e:
-
-        print(
-            "ERROR: AI returned invalid JSON."
-        )
-
-        print(
-            str(e)
-        )
-
-        print(
-            "Raw AI response:"
-        )
-
-        print(
-            text
-        )
-
-        return []
-
-    except Exception as e:
-
-        print(
-            "ERROR: AI classification failed."
-        )
-
-        print(
-            str(e)
-        )
-
-        return []
-
+    return []
+```
 
 # ============================================================
+
 # CREATE DAILY DIGEST
+
 # ============================================================
 
 def create_daily_digest(posts):
 
-    today = datetime.now(
-        TIMEZONE
-    ).strftime(
-        "%B %d, %Y"
-    )
+```
+today = datetime.now(
+    TIMEZONE
+).strftime(
+    "%B %d, %Y"
+)
 
-    subject = (
-        f"Trump International Affairs Daily Digest — "
-        f"{today}"
-    )
+subject = (
+    f"Trump International Affairs Daily Digest — "
+    f"{today}"
+)
 
-    if not posts:
+if not posts:
 
-        body = f"""
+    body = f"""
+```
+
 TRUMP INTERNATIONAL AFFAIRS DAILY DIGEST
 
 {today}
@@ -834,272 +628,301 @@ TRUMP INTERNATIONAL AFFAIRS DAILY DIGEST
 No international-affairs-related Truth Social posts
 were identified during the previous 24 hours.
 
-The monitor reviewed the available Truth Social posts
-from the previous 24-hour period and classified them
-for international-affairs and national-security relevance.
+The monitor reviewed Trump's available posts from the
+previous 24 hours and used AI to identify posts that
+meaningfully concern international affairs.
 
+This does NOT mean Trump made no posts. It means that
+none of the posts reviewed were classified as
+meaningfully related to international affairs.
 """
 
-        return subject, body
+```
+    return subject, body
 
-    sections = []
+sections = []
 
-    for number, post in enumerate(
-        posts,
-        start=1
-    ):
+for number, post in enumerate(
+    posts,
+    start=1
+):
 
-        section = f"""
+    post_time = post.get(
+        "time",
+        "Unknown time"
+    )
+
+    content = post.get(
+        "content",
+        ""
+    )
+
+    url = post.get(
+        "url",
+        ""
+    )
+
+    reason = post.get(
+        "reason",
+        ""
+    )
+
+    section = f"""
+```
+
 ============================================================
 POST {number}
-============================================================
+=============
 
 TIME:
-{post.get("time", "Unknown time")}
+{post_time}
 
-WHY IT WAS INCLUDED:
-{post.get("reason", "")}
+WHY THIS POST WAS INCLUDED:
+{reason}
 
 TRUMP'S POST:
-{post.get("content", "")}
-"""
+{content}
 
-        media = post.get(
-            "media",
-            []
-        )
-
-        if media:
-
-            section += "\nMEDIA INFORMATION:\n"
-
-            for item in media:
-
-                section += (
-                    f"- {item}\n"
-                )
-
-        section += f"""
 TRUTH SOCIAL:
-{post.get("url", "")}
+{url}
 """
 
-        sections.append(
-            section
-        )
+```
+    sections.append(
+        section
+    )
 
-    body = f"""
+body = f"""
+```
+
 TRUMP INTERNATIONAL AFFAIRS DAILY DIGEST
 
 {today}
 
-This digest contains Trump's Truth Social posts from
-the previous 24 hours that were identified as meaningfully
-related to international affairs or national security.
+The following posts were identified as meaningfully
+related to international affairs during the previous
+24 hours.
 
-NUMBER OF POSTS:
+NUMBER OF INTERNATIONAL-AFFAIRS POSTS:
 {len(posts)}
 
 """
 
-    body += "\n".join(
-        sections
-    )
+```
+body += "\n".join(
+    sections
+)
 
-    body += """
+body += """
+```
 
 ============================================================
 
 This digest was generated automatically.
 """
 
-    return subject, body
-
+```
+return subject, body
+```
 
 # ============================================================
+
 # SEND EMAIL
+
 # ============================================================
 
-def send_email(
-    subject,
-    body
-):
+def send_email(subject, body):
 
-    print()
-    print("================================================")
-    print("SENDING DAILY DIGEST")
-    print("================================================")
+```
+print("--------------------------------")
+print("Sending daily digest...")
+print("To:", EMAIL_TO)
+print("--------------------------------")
 
-    message = MIMEMultipart()
+message = MIMEMultipart()
 
-    message["From"] = EMAIL_ADDRESS
-    message["To"] = EMAIL_TO
-    message["Subject"] = subject
+message["From"] = EMAIL_ADDRESS
+message["To"] = EMAIL_TO
+message["Subject"] = subject
 
-    message.attach(
-        MIMEText(
-            body,
-            "plain",
-            "utf-8"
-        )
+message.attach(
+    MIMEText(
+        body,
+        "plain",
+        "utf-8"
     )
+)
 
-    try:
+try:
 
-        with smtplib.SMTP(
-            "smtp.gmail.com",
-            587,
-            timeout=30
-        ) as server:
+    with smtplib.SMTP(
+        "smtp.gmail.com",
+        587,
+        timeout=30,
+    ) as server:
 
-            server.starttls()
+        server.starttls()
 
-            server.login(
-                EMAIL_ADDRESS,
-                EMAIL_PASSWORD
-            )
-
-            server.sendmail(
-                EMAIL_ADDRESS,
-                EMAIL_TO,
-                message.as_string()
-            )
-
-        print(
-            "EMAIL SENT SUCCESSFULLY."
+        server.login(
+            EMAIL_ADDRESS,
+            EMAIL_PASSWORD,
         )
 
-        print("================================================")
-
-        return True
-
-    except Exception as e:
-
-        print(
-            "ERROR: Email failed."
+        server.sendmail(
+            EMAIL_ADDRESS,
+            EMAIL_TO,
+            message.as_string(),
         )
 
-        print(
-            str(e)
-        )
+    print("EMAIL SENT SUCCESSFULLY.")
 
-        return False
+    return True
 
+except Exception as e:
+
+    print("ERROR: Email failed.")
+    print(str(e))
+
+    return False
+```
 
 # ============================================================
+
 # MAIN
+
 # ============================================================
 
 def main():
 
-    print()
-    print("================================================")
-    print("TRUMP INTERNATIONAL AFFAIRS DAILY MONITOR")
-    print("================================================")
+```
+print()
+print("================================================")
+print("TRUMP INTERNATIONAL AFFAIRS DAILY MONITOR")
+print("================================================")
 
-    # --------------------------------------------------------
-    # Validate configuration
-    # --------------------------------------------------------
+# --------------------------------------------------------
+# Validate configuration
+# --------------------------------------------------------
 
-    if not validate_configuration():
+if not validate_configuration():
 
-        print(
-            "MONITOR STOPPED."
-        )
+    print("MONITOR STOPPED.")
 
-        return
+    return
+
+print("All required configuration detected.")
+
+# --------------------------------------------------------
+# Get Trump's posts
+# --------------------------------------------------------
+
+posts = get_truth_social_posts()
+
+if posts is None:
+
+    print("MONITOR FAILED.")
+
+    return
+
+if not posts:
+
+    print("ERROR: API returned zero posts.")
+
+    return
+
+# --------------------------------------------------------
+# Filter to previous 24 hours
+# --------------------------------------------------------
+
+recent_posts = get_posts_from_last_24_hours(
+    posts
+)
+
+# --------------------------------------------------------
+# If no recent posts
+# --------------------------------------------------------
+
+if not recent_posts:
 
     print(
-        "All required configuration detected."
+        "No posts were found in the previous 24 hours."
     )
-
-    # --------------------------------------------------------
-    # Retrieve posts
-    # --------------------------------------------------------
-
-    posts = get_truth_social_posts()
-
-    if posts is None:
-
-        print(
-            "MONITOR FAILED: Could not retrieve posts."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Prepare posts
-    # --------------------------------------------------------
-
-    prepared_posts = prepare_posts_for_ai(
-        posts
-    )
-
-    print(
-        "Posts prepared for classification:",
-        len(prepared_posts)
-    )
-
-    # --------------------------------------------------------
-    # Classify
-    # --------------------------------------------------------
-
-    international_posts = classify_posts(
-        prepared_posts
-    )
-
-    # --------------------------------------------------------
-    # Create ONE daily digest
-    # --------------------------------------------------------
 
     subject, body = create_daily_digest(
-        international_posts
+        []
     )
 
-    # --------------------------------------------------------
-    # Send ONE email
-    # --------------------------------------------------------
-
-    success = send_email(
+    send_email(
         subject,
         body
     )
 
-    # --------------------------------------------------------
-    # Final status
-    # --------------------------------------------------------
+    return
 
-    print()
+# --------------------------------------------------------
+# Prepare posts
+# --------------------------------------------------------
 
-    if success:
+prepared_posts = prepare_posts_for_ai(
+    recent_posts
+)
 
-        print(
-            "DAILY DIGEST COMPLETE."
-        )
+# --------------------------------------------------------
+# Classify posts
+# --------------------------------------------------------
 
-        print(
-            "International posts included:",
-            len(international_posts)
-        )
+international_posts = classify_posts(
+    prepared_posts
+)
 
-    else:
+# --------------------------------------------------------
+# Create ONE digest
+# --------------------------------------------------------
 
-        print(
-            "DAILY DIGEST FAILED."
-        )
+subject, body = create_daily_digest(
+    international_posts
+)
+
+# --------------------------------------------------------
+# Send ONE email
+# --------------------------------------------------------
+
+success = send_email(
+    subject,
+    body
+)
+
+# --------------------------------------------------------
+# Final result
+# --------------------------------------------------------
+
+print("--------------------------------")
+
+if success:
+
+    print("DAILY DIGEST COMPLETE.")
 
     print(
-        "================================================"
+        "International posts included:",
+        len(international_posts)
     )
 
+else:
+
+    print(
+        "DAILY DIGEST FAILED TO SEND."
+    )
+
+print("================================================")
+```
 
 # ============================================================
-# RUN
+
+# RUN PROGRAM
+
 # ============================================================
 
-if __name__ == "__main__":
-
-    main()
-````
+if **name** == "**main**":
+main()
 
     
