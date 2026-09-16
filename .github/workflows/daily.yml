@@ -1,67 +1,40 @@
 name: Trump International Affairs Daily Digest
 
 on:
-
-  # Run every morning at 8:00 AM Denver time.
-  # GitHub supports timezone-aware schedules.
   schedule:
     - cron: "0 8 * * *"
-      timezone: "America/Denver"
+      timezone: "America/New_York"
 
-  # Allows you to manually test the workflow.
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-
   run-monitor:
-
     runs-on: ubuntu-latest
 
     steps:
-
-      # ------------------------------------------------------
-      # Get repository
-      # ------------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # Set up Python
-      # ------------------------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # ------------------------------------------------------
-      # Install dependencies
-      # ------------------------------------------------------
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ------------------------------------------------------
-      # Run daily monitor
-      # ------------------------------------------------------
-
       - name: Run Trump international affairs monitor
         env:
-
           TRUTH_API_KEY: ${{ secrets.TRUTH_API_KEY }}
           TRUTH_API_URL: ${{ secrets.TRUTH_API_URL }}
-
           EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
         run: |
           python main.py
